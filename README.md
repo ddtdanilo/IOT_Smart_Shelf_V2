@@ -8,3 +8,4 @@ Hardware features:
 * SIM800L for GPRS communication
 * ToF Sensor for detection
 * Arduino Mega 2560
+* Load cells

@@ -4,19 +4,17 @@
 #include "Adafruit_FONA.h"
 #include <SoftwareSerial.h>
 
-//*********** Load Cell
-
+//Load Cell Pins
 #define DT A1     //Load cell data pin (DT)
 #define SCK A0    //Load cell clock pin (SCK)
 
 //Load cell HX711
 HX711 balanza(DT, SCK);
 
-//Aux variables
+//Weight measurement variables
 long medidaRaw = 0;
 long medida = 0;
 long medidaEEPROM = 0;
-long medidaCero = 8465393;
 long adcActual = 0;
 double peso = 0.0;
 double pesoEEPROM = 0;
@@ -26,45 +24,92 @@ unsigned int contadorProducto = 0;
 bool producto = false;
 
 
-//********* Tray detection and traffic
+//Tray detection and traffic
 
 //I2C Address
 #define LOX1_ADDRESS 0x30
 #define LOX2_ADDRESS 0x31
-#define LOXt_ADDRESS 0x32
+#define LOX3_ADDRESS 0x32
+/*
+#define LOX4_ADDRESS 0x33
+#define LOX5_ADDRESS 0x34
+#define LOX6_ADDRESS 0x35
+#define LOX7_ADDRESS 0x36
+#define LOX8_ADDRESS 0x37
+#define LOX9_ADDRESS 0x38
+#define LOX10_ADDRESS 0x39
+#define LOX11_ADDRESS 0x3A
+#define LOX12_ADDRESS 0x3B
+*/
 
 //Set the pins to shutdown
-#define SHT_LOX1 7
-#define SHT_LOX2 6
-#define SHT_LOXt 5
+#define SHT_LOX1 7 //22
+#define SHT_LOX2 6 //23
+#define SHT_LOX3 5 //24
+/*
+#define SHT_LOX4 25
+#define SHT_LOX5 26
+#define SHT_LOX6 27
+#define SHT_LOX7 28
+#define SHT_LOX8 29
+#define SHT_LOX9 30
+#define SHT_LOX10 31
+#define SHT_LOX11 32
+#define SHT_LOX12 33
+*/
 
 //Objects for the vl53l0x
 Adafruit_VL53L0X lox1 = Adafruit_VL53L0X();
 Adafruit_VL53L0X lox2 = Adafruit_VL53L0X();
-Adafruit_VL53L0X loxt = Adafruit_VL53L0X();
+Adafruit_VL53L0X lox3 = Adafruit_VL53L0X();
+/*
+Adafruit_VL53L0X lox4 = Adafruit_VL53L0X();
+Adafruit_VL53L0X lox5 = Adafruit_VL53L0X();
+Adafruit_VL53L0X lox6 = Adafruit_VL53L0X();
+Adafruit_VL53L0X lox7 = Adafruit_VL53L0X();
+Adafruit_VL53L0X lox8 = Adafruit_VL53L0X();
+Adafruit_VL53L0X lox9 = Adafruit_VL53L0X();
+Adafruit_VL53L0X lox10 = Adafruit_VL53L0X();
+Adafruit_VL53L0X lox11 = Adafruit_VL53L0X();
+Adafruit_VL53L0X lox12 = Adafruit_VL53L0X();
+*/
 
 //Variables to hold the measurement
 VL53L0X_RangingMeasurementData_t measure1;
 VL53L0X_RangingMeasurementData_t measure2;
-VL53L0X_RangingMeasurementData_t measuret;
+VL53L0X_RangingMeasurementData_t measure3;
+/*
+VL53L0X_RangingMeasurementData_t measure4;
+VL53L0X_RangingMeasurementData_t measure5;
+VL53L0X_RangingMeasurementData_t measure6;
+VL53L0X_RangingMeasurementData_t measure7;
+VL53L0X_RangingMeasurementData_t measure8;
+VL53L0X_RangingMeasurementData_t measure9;
+VL53L0X_RangingMeasurementData_t measure10;
+VL53L0X_RangingMeasurementData_t measure11;
+VL53L0X_RangingMeasurementData_t measure12;
+*/
 
+//Hand detection Aux variables
 unsigned int trayDetection = 0;
 unsigned int tray = 0;
 bool transit = false;
 
+//Variables to compute distance
 unsigned int dist1 = 0;
 unsigned int dist2 = 0;
 unsigned int distt = 0;
 
-//****** GPRS
-int FONA_RX = 4;
-int FONA_TX = 8;
-int FONA_RST = 7;
+//GPRS Pins
+int FONA_RX = 19;
+int FONA_TX = 18;
+int FONA_RST = 17;
 
 String IMEI;
 char header[] = ":PS:0001";
 String url_server = "http://67.205.163.188/getdata?payload=";
 
+//GPRS Serial
 SoftwareSerial fonaSS = SoftwareSerial(FONA_TX, FONA_RX);
 SoftwareSerial *fonaSerial = &fonaSS;
 Adafruit_FONA fona = Adafruit_FONA(FONA_RST);
@@ -311,13 +356,13 @@ void comprobacionParametros() {
 void setOutputsLow() {
   pinMode(SHT_LOX1, OUTPUT);
   pinMode(SHT_LOX2, OUTPUT);
-  pinMode(SHT_LOXt, OUTPUT);
+  pinMode(SHT_LOX3, OUTPUT);
 
   //Serial.println("Shutdown pins inited...");
 
   digitalWrite(SHT_LOX1, LOW);
   digitalWrite(SHT_LOX2, LOW);
-  digitalWrite(SHT_LOXt, LOW);
+  digitalWrite(SHT_LOX3, LOW);
 
   // Serial.println("All devices in reset mode...(pins are low)");
 }
@@ -326,21 +371,21 @@ void setAddress() {
   //All reset
   digitalWrite(SHT_LOX1, LOW);
   digitalWrite(SHT_LOX2, LOW);
-  digitalWrite(SHT_LOXt, LOW);
+  digitalWrite(SHT_LOX3, LOW);
 
   delay(10);
 
   //All unreset
   digitalWrite(SHT_LOX1, HIGH);
   digitalWrite(SHT_LOX2, HIGH);
-  digitalWrite(SHT_LOXt, HIGH);
+  digitalWrite(SHT_LOX3, HIGH);
 
   delay(10);
 
   //Activating LOX1 and reseting the other devices
   digitalWrite(SHT_LOX1, HIGH);
   digitalWrite(SHT_LOX2, LOW);
-  digitalWrite(SHT_LOXt, LOW);
+  digitalWrite(SHT_LOX3, LOW);
 
   //Initing LOX1
   if (!lox1.begin(LOX1_ADDRESS)) {
@@ -360,12 +405,12 @@ void setAddress() {
   }
   delay(10);
 
-  //Activating LOXt
-  digitalWrite(SHT_LOXt, HIGH);
+  //Activating lox3
+  digitalWrite(SHT_LOX3, HIGH);
   delay(10);
 
-  //Initing LOXt
-  if (!loxt.begin(LOXt_ADDRESS)) {
+  //Initing lox3
+  if (!lox3.begin(LOX3_ADDRESS)) {
     Serial.println(F("Failed to boot VL53L0X for traffic"));
     while (1);
   }
@@ -378,7 +423,7 @@ void read_hand_bar() {
 
   lox1.rangingTest(&measure1, false); // pass in 'true' to get debug data printout!
   lox2.rangingTest(&measure2, false); // pass in 'true' to get debug data printout!
-  loxt.rangingTest(&measuret, false); // pass in 'true' to get debug data printout!
+  lox3.rangingTest(&measure3, false); // pass in 'true' to get debug data printout!
 
   // print sensor one reading
   /*
@@ -403,8 +448,8 @@ void read_hand_bar() {
 
     // print sensor traffic reading
     Serial.print("t: ");
-    if (measuret.RangeStatus != 4) {
-    Serial.print(measuret.RangeMilliMeter);
+    if (measure3.RangeStatus != 4) {
+    Serial.print(measure3.RangeMilliMeter);
     } else {
     Serial.print("Out of range");
     }
@@ -413,7 +458,7 @@ void read_hand_bar() {
 
   dist1 = measure1.RangeMilliMeter;
   dist2 = measure2.RangeMilliMeter;
-  distt = measuret.RangeMilliMeter;
+  distt = measure3.RangeMilliMeter;
 
   if (dist1 < 410 || dist2 < 410) {
     //Serial.println("****************BANDEJA 1");

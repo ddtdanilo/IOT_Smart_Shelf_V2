@@ -18,10 +18,12 @@ long medidaEEPROM = 0;
 long adcActual = 0;
 double peso = 0.0;
 double pesoEEPROM = 0;
-int muestras = 15;
-double ADC_Entrada[15];
+int muestras = 20;
+double ADC_Entrada[20];
 unsigned int contadorProducto = 0;
 bool producto = false;
+unsigned int sendEvent = 0;
+double diffWeight = 0.0;
 
 
 //Tray detection and traffic
@@ -31,15 +33,15 @@ bool producto = false;
 #define LOX2_ADDRESS 0x31
 #define LOX3_ADDRESS 0x32
 /*
-#define LOX4_ADDRESS 0x33
-#define LOX5_ADDRESS 0x34
-#define LOX6_ADDRESS 0x35
-#define LOX7_ADDRESS 0x36
-#define LOX8_ADDRESS 0x37
-#define LOX9_ADDRESS 0x38
-#define LOX10_ADDRESS 0x39
-#define LOX11_ADDRESS 0x3A
-#define LOX12_ADDRESS 0x3B
+  #define LOX4_ADDRESS 0x33
+  #define LOX5_ADDRESS 0x34
+  #define LOX6_ADDRESS 0x35
+  #define LOX7_ADDRESS 0x36
+  #define LOX8_ADDRESS 0x37
+  #define LOX9_ADDRESS 0x38
+  #define LOX10_ADDRESS 0x39
+  #define LOX11_ADDRESS 0x3A
+  #define LOX12_ADDRESS 0x3B
 */
 
 //Set the pins to shutdown
@@ -47,15 +49,15 @@ bool producto = false;
 #define SHT_LOX2 6 //23
 #define SHT_LOX3 5 //24
 /*
-#define SHT_LOX4 25
-#define SHT_LOX5 26
-#define SHT_LOX6 27
-#define SHT_LOX7 28
-#define SHT_LOX8 29
-#define SHT_LOX9 30
-#define SHT_LOX10 31
-#define SHT_LOX11 32
-#define SHT_LOX12 33
+  #define SHT_LOX4 25
+  #define SHT_LOX5 26
+  #define SHT_LOX6 27
+  #define SHT_LOX7 28
+  #define SHT_LOX8 29
+  #define SHT_LOX9 30
+  #define SHT_LOX10 31
+  #define SHT_LOX11 32
+  #define SHT_LOX12 33
 */
 
 //Objects for the vl53l0x
@@ -63,15 +65,15 @@ Adafruit_VL53L0X lox1 = Adafruit_VL53L0X();
 Adafruit_VL53L0X lox2 = Adafruit_VL53L0X();
 Adafruit_VL53L0X lox3 = Adafruit_VL53L0X();
 /*
-Adafruit_VL53L0X lox4 = Adafruit_VL53L0X();
-Adafruit_VL53L0X lox5 = Adafruit_VL53L0X();
-Adafruit_VL53L0X lox6 = Adafruit_VL53L0X();
-Adafruit_VL53L0X lox7 = Adafruit_VL53L0X();
-Adafruit_VL53L0X lox8 = Adafruit_VL53L0X();
-Adafruit_VL53L0X lox9 = Adafruit_VL53L0X();
-Adafruit_VL53L0X lox10 = Adafruit_VL53L0X();
-Adafruit_VL53L0X lox11 = Adafruit_VL53L0X();
-Adafruit_VL53L0X lox12 = Adafruit_VL53L0X();
+  Adafruit_VL53L0X lox4 = Adafruit_VL53L0X();
+  Adafruit_VL53L0X lox5 = Adafruit_VL53L0X();
+  Adafruit_VL53L0X lox6 = Adafruit_VL53L0X();
+  Adafruit_VL53L0X lox7 = Adafruit_VL53L0X();
+  Adafruit_VL53L0X lox8 = Adafruit_VL53L0X();
+  Adafruit_VL53L0X lox9 = Adafruit_VL53L0X();
+  Adafruit_VL53L0X lox10 = Adafruit_VL53L0X();
+  Adafruit_VL53L0X lox11 = Adafruit_VL53L0X();
+  Adafruit_VL53L0X lox12 = Adafruit_VL53L0X();
 */
 
 //Variables to hold the measurement
@@ -79,15 +81,15 @@ VL53L0X_RangingMeasurementData_t measure1;
 VL53L0X_RangingMeasurementData_t measure2;
 VL53L0X_RangingMeasurementData_t measure3;
 /*
-VL53L0X_RangingMeasurementData_t measure4;
-VL53L0X_RangingMeasurementData_t measure5;
-VL53L0X_RangingMeasurementData_t measure6;
-VL53L0X_RangingMeasurementData_t measure7;
-VL53L0X_RangingMeasurementData_t measure8;
-VL53L0X_RangingMeasurementData_t measure9;
-VL53L0X_RangingMeasurementData_t measure10;
-VL53L0X_RangingMeasurementData_t measure11;
-VL53L0X_RangingMeasurementData_t measure12;
+  VL53L0X_RangingMeasurementData_t measure4;
+  VL53L0X_RangingMeasurementData_t measure5;
+  VL53L0X_RangingMeasurementData_t measure6;
+  VL53L0X_RangingMeasurementData_t measure7;
+  VL53L0X_RangingMeasurementData_t measure8;
+  VL53L0X_RangingMeasurementData_t measure9;
+  VL53L0X_RangingMeasurementData_t measure10;
+  VL53L0X_RangingMeasurementData_t measure11;
+  VL53L0X_RangingMeasurementData_t measure12;
 */
 
 //Hand detection Aux variables
@@ -124,7 +126,7 @@ void setup() {
   setAddress();
 
   //WEIGHT
-  setCero();
+  setZero();
 
 }
 
@@ -139,12 +141,13 @@ void loop() {
 
   //WEIGHT
   measureWeight();
+  eventDetection();
   comprobacionParametros();
 }
 
 //***********************FUNCTIONS******************************
 
-long setCero() {
+long setZero() {
   medidaRaw = balanza.read_average(100);
 
   for (int i = 0; i < muestras; i++) {
@@ -175,12 +178,12 @@ void peso2EEPROM() {
 }
 
 ///***********************************************************
-void setCeroManual(long ADC_Manual) {
+void setZeroManual(long ADC_Manual) {
   medidaRaw = ADC_Manual;
   putEEPROM();
 }
 ///***********************************************************
-void setCeroManualFast(long ADC_Manual) {
+void setZeroManualFast(long ADC_Manual) {
   medidaRaw = ADC_Manual;
   //putEEPROM();
 }
@@ -226,6 +229,16 @@ double promedioMedida() {
 
 }
 ///***********************************************************
+double setWeight()
+{
+  for(int i = 0; i < muestras; i++)
+  {
+    agregarMedida();
+  }
+  peso = adctoKg(promedioMedida());
+  return peso;
+}
+///***********************************************************
 double adctoKg(double promedioADC) {
 
   double pesoADC = -0.0193 * promedioADC + 1.19;
@@ -237,7 +250,7 @@ double adctoKg(double promedioADC) {
 void initEEPROMData() {
   if (EEPROM.read(0) == 0xFE || EEPROM.read(0) == 0x00) {
     Serial.print("Equipo recien inicializado, cargando ADC... Valor:");
-    setCero();
+    setZero();
     putEEPROM();
     EEPROM.write(0, 0x02); // cualquier numero distintos a los condicionados
     Serial.println(medidaRaw);
@@ -262,7 +275,7 @@ void serialCommandReceive() {
     // read the incoming byte:
     if (inByte == 'e') { //coloca en cero la eeprom
       clearEEPROM();
-      setCero();
+      setZero();
       pesoEEPROM = 0;
       putEEPROM();
       peso = 0;
@@ -322,6 +335,9 @@ void comprobacionParametros() {
     Serial.print("pesoEEPROM: ");
     Serial.print(pesoEEPROM, 3);
     Serial.print(" | ");
+    Serial.print("diffWeight: ");
+    Serial.print(diffWeight, 3);
+    Serial.print(" | ");
     Serial.print("Distancia 1: ");
     Serial.print(dist1);
     Serial.print(" | ");
@@ -346,7 +362,42 @@ void comprobacionParametros() {
 }
 ///************************************************************
 
+void eventDetection() {
 
+  diffWeight = fabs(peso - pesoEEPROM);
+
+  if (tray != 0 && diffWeight > 0.080)
+  {
+    producto = true;
+    sendEvent = 0;
+    //Send http_get(bandeja)
+    Serial.println();
+    Serial.print("Bandeja: ");
+    Serial.println(tray);
+    delay(2000);
+  }
+
+  if (producto == true)
+  {
+    if(sendEvent == 0) (void)setWeight();
+    if (sendEvent < 4)
+    {
+      //Send http_get(peso)
+      pesoEEPROM = peso;
+      peso2EEPROM();
+      Serial.println();
+      Serial.print("Peso enviado: ");
+      Serial.println(peso);
+      sendEvent++;
+      delay(2000);
+    }
+  }
+  else {
+    sendEvent = 0;
+    producto = false;
+  }
+
+}
 
 //********************* TRAFFIC and tray
 

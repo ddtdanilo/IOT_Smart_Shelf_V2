@@ -6,9 +6,9 @@
 #define LOXt_ADDRESS 0x32
 
 //Set the pins to shutdown
-#define SHT_LOX1 7
-#define SHT_LOX2 6
-#define SHT_LOXt 5
+#define SHT_LOX1 4
+#define SHT_LOX2 5
+#define SHT_LOXt 6
 
 //Objects for the vl53l0x
 Adafruit_VL53L0X lox1 = Adafruit_VL53L0X();
@@ -160,7 +160,7 @@ void read_hand_bar() {
   if (measure1.RangeMilliMeter < 410 || measure2.RangeMilliMeter < 410) {
     //Serial.println("****************BANDEJA 1");
     if (trayDetection != 1 || trayDetection == 0) trayDetection = 1;
-    else if(trayDetection == 1) Serial.println("*****BANDEJA 1");
+    else if (trayDetection == 1) Serial.println("*****BANDEJA 1");
   }
 
   else if (measure1.RangeMilliMeter < 820 || measure2.RangeMilliMeter < 820) {

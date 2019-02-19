@@ -45,9 +45,10 @@ double diffWeight = 0.0;
 */
 
 //Set the pins to shutdown
-#define SHT_LOX1 7 //22
-#define SHT_LOX2 6 //23
-#define SHT_LOX3 5 //24
+#define SHT_LOX1 4 //22
+#define SHT_LOX2 5 //23
+#define SHT_LOX3 6 //24
+
 /*
   #define SHT_LOX4 25
   #define SHT_LOX5 26
@@ -103,24 +104,32 @@ unsigned int dist2 = 0;
 unsigned int distt = 0;
 
 //GPRS Pins
-int FONA_RX = 19;
-int FONA_TX = 18;
-int FONA_RST = 17;
+int FONA_RX = 18;
+int FONA_TX = 19;
+int FONA_RST = 2;
 
 String IMEI;
-char header[] = ":PS:0001";
+String hardwareID = "0001";
+
+String headerProductDW = "producto:DW:" + hardwareID;
+String headerProductMD = "producto:MD:" + hardwareID;
+String headerProductUP = "producto:UP:" + hardwareID;
+
+String headerWeight = ":PS:" + hardwareID;
 String url_server = "http://67.205.163.188/getdata?payload=";
 
 //GPRS Serial
-SoftwareSerial fonaSS = SoftwareSerial(FONA_TX, FONA_RX);
-SoftwareSerial *fonaSerial = &fonaSS;
+HardwareSerial *fonaSerial = &Serial1;
 Adafruit_FONA fona = Adafruit_FONA(FONA_RST);
 
 //SETUP
 void setup() {
 
   Serial.begin(115200);
+  //Enable GPRS
+  enableGPRS();
 
+  http_get(headerProductUP);
   //HAND DETECTION BAR
   setOutputsLow();
   setAddress();
@@ -231,7 +240,7 @@ double promedioMedida() {
 ///***********************************************************
 double setWeight()
 {
-  for(int i = 0; i < muestras; i++)
+  for (int i = 0; i < muestras; i++)
   {
     agregarMedida();
   }
@@ -370,26 +379,29 @@ void eventDetection() {
   {
     producto = true;
     sendEvent = 0;
-    //Send http_get(bandeja)
+
     Serial.println();
     Serial.print("Bandeja: ");
     Serial.println(tray);
-    delay(2000);
+
+    if (tray == 1) http_get(headerProductUP);
+    if (tray == 2) http_get(headerProductMD);
+    if (tray == 3) http_get(headerProductDW);
   }
 
   if (producto == true)
   {
-    if(sendEvent == 0) (void)setWeight();
+    if (sendEvent == 0) (void)setWeight();
     if (sendEvent < 4)
     {
-      //Send http_get(peso)
       pesoEEPROM = peso;
       peso2EEPROM();
       Serial.println();
       Serial.print("Peso enviado: ");
       Serial.println(peso);
       sendEvent++;
-      delay(2000);
+      
+      http_get(String(peso) + headerWeight);
     }
   }
   else {
@@ -562,7 +574,7 @@ String enableGPRS()
 
   Serial.println(F("FONA is OK"));
 
-  //fona.setGPRSNetworkSettings(F("internet.itelcel.com"), F("webgprs"), F("webgprs2003"));
+  fona.setGPRSNetworkSettings(F("internet.itelcel.com"), F("webgprs"), F("webgprs2003"));
 
   //fona.enableGPS(true);
 

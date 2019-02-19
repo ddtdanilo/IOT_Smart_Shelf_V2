@@ -129,13 +129,12 @@ void setup() {
   //Enable GPRS
   enableGPRS();
 
-  http_get(headerProductUP);
   //HAND DETECTION BAR
   setOutputsLow();
   setAddress();
 
   //WEIGHT
-  setZero();
+  EEPROMSet();
 
 }
 
@@ -155,7 +154,6 @@ void loop() {
 }
 
 //***********************FUNCTIONS******************************
-
 long setZero() {
   medidaRaw = balanza.read_average(100);
 
@@ -166,6 +164,28 @@ long setZero() {
   EEPROM.put(0x00, 0x02);
   return medidaRaw;
 }
+///***********************************************************
+void EEPROMSet() {
+
+  if (EEPROM.read(0) == 0xFE || EEPROM.read(0) == 0x00) {
+    clearEEPROM();
+    Serial.print("Equipo recien inicializado, cargando ADC... Valor:");
+    setZero();
+    putEEPROM();
+    EEPROM.write(0, 0x02); // cualquier numero distintos a los condicionados
+    Serial.println(medidaRaw);
+    peso2EEPROM();
+  } else {
+    Serial.print("Iniciando equipo, medida ADC-EEPROM: ");
+    medidaRaw = getEEPROM();
+    Serial.println(medidaRaw);
+    EEPROM.write(0, 0x02);
+    (void)setWeight();
+  }
+
+  EEPROM.get(0x06, pesoEEPROM);
+}
+
 ///***********************************************************
 void putEEPROM() {
   EEPROM.put(0x01, medidaRaw);
@@ -211,8 +231,6 @@ double medidaNueva() {
 ///***********************************************************
 void agregarMedida() {
 
-  //double nuevaMuestra = medidaNueva;
-  //Serial.println("*******************");
   for (int i = 0; i < muestras - 1; i++) {
     ADC_Entrada[i] = ADC_Entrada[i + 1];
     //Serial.print(ADC_Entrada[i]);
@@ -317,7 +335,6 @@ void ajusteCeroEEPROM() {
   peso = promedioMedida();
   peso = adctoKg(peso);
 
-
 }
 ///***************************************************************
 double measureWeight() {
@@ -400,8 +417,9 @@ void eventDetection() {
       Serial.print("Peso enviado: ");
       Serial.println(peso);
       sendEvent++;
-      
+
       http_get(String(peso) + headerWeight);
+      peso2EEPROM();
     }
   }
   else {

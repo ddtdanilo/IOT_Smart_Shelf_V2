@@ -20,8 +20,8 @@ double peso = 0.0;
 double pesoEEPROM = 0;
 int muestras = 20;
 double ADC_Entrada[20];
-unsigned int contadorProducto = 0;
-bool producto = false;
+unsigned int contadorweightEvent = 0;
+bool weightEvent = false;
 unsigned int sendEvent = 0;
 double diffWeight = 0.0;
 
@@ -45,9 +45,10 @@ double diffWeight = 0.0;
 */
 
 //Set the pins to shutdown
-#define SHT_LOX1 4 //22
-#define SHT_LOX2 5 //23
-#define SHT_LOX3 6 //24
+#define SHT_LOX1 24   //SENSOR DE BARRA 1
+#define SHT_LOX2 25   //SENSOR DE BARRA 2
+#define SHT_LOX3 22   //TRANSITO
+#define SHT_LOX4 23   //SENSOR DE TRANSITO PASILLO
 
 /*
   #define SHT_LOX4 25
@@ -122,8 +123,19 @@ String url_server = "http://67.205.163.188/getdata?payload=";
 HardwareSerial *fonaSerial = &Serial1;
 Adafruit_FONA fona = Adafruit_FONA(FONA_RST);
 
+//Time handle
+unsigned long startTime = 0;
+unsigned long lastInterval = 0;
+unsigned long interval = 60000; //3600000 one hour
+
+//GSM GPS
+float latitude, longitude;
+
 //SETUP
 void setup() {
+
+  startTime = millis ();
+  lastInterval = startTime;
 
   Serial.begin(115200);
   //Enable GPRS
@@ -156,6 +168,17 @@ void loop() {
 //***********************FUNCTIONS******************************
 long setZero() {
   medidaRaw = balanza.read_average(100);
+
+  for (int i = 0; i < muestras; i++) {
+    ADC_Entrada[i] = 0;
+  }
+  EEPROM.put(0x01, medidaRaw);
+  EEPROM.put(0x00, 0x02);
+  return medidaRaw;
+}
+
+long setZeroFast(unsigned int samples) {
+  medidaRaw = balanza.read_average(samples);
 
   for (int i = 0; i < muestras; i++) {
     ADC_Entrada[i] = 0;
@@ -346,6 +369,11 @@ double measureWeight() {
   //adcActual = adcActual + medidaRaw;
   peso = adctoKg(adcActual);
   //Serial.println(peso, 3);
+
+  /*if (peso <= 0.005){
+    (void)setZeroFast(1);
+    }*/
+
   return peso;
 
 }
@@ -392,9 +420,9 @@ void eventDetection() {
 
   diffWeight = fabs(peso - pesoEEPROM);
 
-  if (tray != 0 && diffWeight > 0.080)
+  if (tray != 0)
   {
-    producto = true;
+    //weightEvent = true;
     sendEvent = 0;
 
     Serial.println();
@@ -406,29 +434,28 @@ void eventDetection() {
     if (tray == 3) http_get(headerProductDW);
   }
 
-  if (producto == true)
+  if (weightEvent == true)
   {
     if (sendEvent == 0) (void)setWeight();
     if (sendEvent < 4)
     {
       pesoEEPROM = peso;
       peso2EEPROM();
-      Serial.println();
-      Serial.print("Peso enviado: ");
-      Serial.println(peso);
       sendEvent++;
-
       http_get(String(peso) + headerWeight);
+      //http_get("GSM:"+ String(latitude) + "," + String(longitude) + ":" + hardwareID);
       peso2EEPROM();
     }
+    else weightEvent = false;
   }
   else {
     sendEvent = 0;
-    producto = false;
+    weightEvent = false;
   }
 
-}
+  (void)timeCalculator();
 
+}
 //********************* TRAFFIC and tray
 
 
@@ -438,12 +465,14 @@ void setOutputsLow() {
   pinMode(SHT_LOX1, OUTPUT);
   pinMode(SHT_LOX2, OUTPUT);
   pinMode(SHT_LOX3, OUTPUT);
+  pinMode(SHT_LOX4, OUTPUT);
 
   //Serial.println("Shutdown pins inited...");
 
   digitalWrite(SHT_LOX1, LOW);
   digitalWrite(SHT_LOX2, LOW);
   digitalWrite(SHT_LOX3, LOW);
+  digitalWrite(SHT_LOX4, LOW);
 
   // Serial.println("All devices in reset mode...(pins are low)");
 }
@@ -471,7 +500,7 @@ void setAddress() {
   //Initing LOX1
   if (!lox1.begin(LOX1_ADDRESS)) {
     Serial.println(F("Failed to boot VL53L0X 1"));
-    while (1);
+    // while (1);
   }
   delay(10);
 
@@ -482,7 +511,7 @@ void setAddress() {
   //Initing LOX2
   if (!lox2.begin(LOX2_ADDRESS)) {
     Serial.println(F("Failed to boot VL53L0X 2"));
-    while (1);
+    //while (1);
   }
   delay(10);
 
@@ -493,7 +522,7 @@ void setAddress() {
   //Initing lox3
   if (!lox3.begin(LOX3_ADDRESS)) {
     Serial.println(F("Failed to boot VL53L0X for traffic"));
-    while (1);
+    //while (1);
   }
 
   // Serial.println("All addresses set!");
@@ -604,6 +633,37 @@ String enableGPRS()
     ;
 
   imeiLen = fona.getIMEI(imei);
+  hardwareID = String(imei);
+  hardwareID = hardwareID.substring(11);
+  Serial.println(hardwareID);
+  // GPS!
+  fona.enableGPS(true); //Enable GPS
+
+  boolean gsmloc_success = fona.getGSMLoc(&latitude, &longitude);
+
+  if (gsmloc_success) {
+    Serial.print("GSMLoc lat:");
+    Serial.println(latitude, 6);
+    Serial.print("GSMLoc long:");
+    Serial.println(longitude, 6);
+  }
+  else {
+    delay(1000);
+    fona.getGSMLoc(&latitude, &longitude);
+    Serial.print("GSMLoc lat:");
+    Serial.println(latitude, 6);
+    Serial.print("GSMLoc long:");
+    Serial.println(longitude, 6);
+  }
+
+
+  headerProductDW = "producto:DW:" + hardwareID;
+  headerProductMD = "producto:MD:" + hardwareID;
+  headerProductUP = "producto:UP:" + hardwareID;
+
+  headerWeight = ":PS:" + hardwareID;
+
+  http_get("GSM:"+ String((long)(latitude*1000000)) + "," + String((long)(longitude*1000000)) + ":" + hardwareID); 
 
   return String(imei);
 }
@@ -639,4 +699,20 @@ uint16_t http_get(String payload_in)
   Serial.println();
 
   return statuscode;
+}
+
+
+//****** time handling
+
+unsigned long timeCalculator()
+{
+  unsigned long timePass = millis() - lastInterval;
+  if (timePass >= interval)
+  {
+    weightEvent = true;
+    lastInterval = millis();
+    fona.getGSMLoc(&latitude, &longitude);
+  }
+  //else weightEvent = false;
+  return timePass;
 }

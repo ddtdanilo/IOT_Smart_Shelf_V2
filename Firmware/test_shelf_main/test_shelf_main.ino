@@ -3,6 +3,7 @@
 #include "Adafruit_VL53L0X.h"
 #include "Adafruit_FONA.h"
 #include <SoftwareSerial.h>
+#include <PID_v1.h>
 
 //Load Cell Pins
 #define DT A1     //Load cell data pin (DT)
@@ -12,14 +13,14 @@
 HX711 balanza(DT, SCK);
 
 //Weight measurement variables
-long medidaRaw = 0;
+long weightTare = 0;
 long medida = 0;
 long medidaEEPROM = 0;
 long adcActual = 0;
 double peso = 0.0;
 double pesoEEPROM = 0;
-int muestras = 20;
-double ADC_Entrada[20];
+int muestras = 150;
+long ADC_Entrada[150];
 unsigned int contadorweightEvent = 0;
 bool weightEvent = false;
 unsigned int sendEvent = 0;
@@ -126,13 +127,38 @@ Adafruit_FONA fona = Adafruit_FONA(FONA_RST);
 //Time handle
 unsigned long startTime = 0;
 unsigned long lastInterval = 0;
-unsigned long interval = 60000; //3600000 one hour
+unsigned long interval = 300000; //3600000 one hour, 900000 15 minutes
+unsigned long timePass = 0;
 
 //GSM GPS
 float latitude, longitude;
 
+//RESET BUTTON
+bool resetBtn;
+int resetPin = 34;
+
+//PID control
+//Specify the links and initial tuning parameters
+double Kp = 300, Ki = 10, Kd = 0;
+//Define Variables we'll be connecting to
+//Setpoint: Desired Weight in Kg
+//Input: Actual measured weight
+//Output: weightTare offset ADC
+double Setpoint, Input, Output;
+PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+
+long pidRunTime = 0;
+long handEventTime = 0;
+bool setpointFlag = false;
+
 //SETUP
 void setup() {
+
+  delay(15000);
+  (void)initPID();
+
+
+  pinMode(resetPin, INPUT_PULLUP);
 
   startTime = millis ();
   lastInterval = startTime;
@@ -148,13 +174,41 @@ void setup() {
   //WEIGHT
   EEPROMSet();
 
+  Setpoint = pesoEEPROM;
+
 }
 
 //LOOP
 
 void loop() {
+
+  resetBtn = digitalRead(resetPin);
+  if (resetBtn == LOW) {
+    clearEEPROM();
+    setZero();
+    pesoEEPROM = 0;
+    putEEPROM();
+    peso = 0;
+    peso2EEPROM();
+    pesoEEPROM = 0;
+    resetPID();
+    setpointFlag = true;
+    Setpoint = 0;
+    //send peso
+    char pesoStr[] = "";
+    dtostrf(peso, 4, 3, pesoStr);
+    http_get(pesoStr + headerWeight);
+    http_get(pesoStr + headerWeight);
+    http_get(pesoStr + headerWeight);
+    http_get(pesoStr + headerWeight);
+
+  }
+
   //CONTROL
   serialCommandReceive(); // for debugging purposes // 'e' for reset 0 and 'r'for reset eeprom and new fresh begin in the next restart
+
+  //Control
+  runPID();
 
   //HAND BAR
   read_hand_bar();
@@ -162,30 +216,33 @@ void loop() {
   //WEIGHT
   measureWeight();
   eventDetection();
+
+  setweightTarePID();
+  //
   comprobacionParametros();
 }
 
 //***********************FUNCTIONS******************************
 long setZero() {
-  medidaRaw = balanza.read_average(100);
+  weightTare = balanza.read_average(100);
 
   for (int i = 0; i < muestras; i++) {
     ADC_Entrada[i] = 0;
   }
-  EEPROM.put(0x01, medidaRaw);
+  EEPROM.put(0x01, weightTare);
   EEPROM.put(0x00, 0x02);
-  return medidaRaw;
+  return weightTare;
 }
 
 long setZeroFast(unsigned int samples) {
-  medidaRaw = balanza.read_average(samples);
+  weightTare = balanza.read_average(samples);
 
   for (int i = 0; i < muestras; i++) {
     ADC_Entrada[i] = 0;
   }
-  EEPROM.put(0x01, medidaRaw);
+  EEPROM.put(0x01, weightTare);
   EEPROM.put(0x00, 0x02);
-  return medidaRaw;
+  return weightTare;
 }
 ///***********************************************************
 void EEPROMSet() {
@@ -196,12 +253,12 @@ void EEPROMSet() {
     setZero();
     putEEPROM();
     EEPROM.write(0, 0x02); // cualquier numero distintos a los condicionados
-    Serial.println(medidaRaw);
+    Serial.println(weightTare);
     peso2EEPROM();
   } else {
     Serial.print("Iniciando equipo, medida ADC-EEPROM: ");
-    medidaRaw = getEEPROM();
-    Serial.println(medidaRaw);
+    weightTare = getEEPROM();
+    Serial.println(weightTare);
     EEPROM.write(0, 0x02);
     (void)setWeight();
   }
@@ -211,12 +268,12 @@ void EEPROMSet() {
 
 ///***********************************************************
 void putEEPROM() {
-  EEPROM.put(0x01, medidaRaw);
+  EEPROM.put(0x01, weightTare);
 }
 ///***********************************************************
 long getEEPROM() {
-  EEPROM.get(0x01, medidaRaw);
-  return medidaRaw;
+  EEPROM.get(0x01, weightTare);
+  return weightTare;
 }
 ///***********************************************************
 void clearEEPROM() {
@@ -231,12 +288,12 @@ void peso2EEPROM() {
 
 ///***********************************************************
 void setZeroManual(long ADC_Manual) {
-  medidaRaw = ADC_Manual;
+  weightTare = ADC_Manual;
   putEEPROM();
 }
 ///***********************************************************
 void setZeroManualFast(long ADC_Manual) {
-  medidaRaw = ADC_Manual;
+  weightTare = ADC_Manual;
   //putEEPROM();
 }
 ///***********************************************************
@@ -246,8 +303,8 @@ void setValor(double nuevaMuestra) {
   }
 }
 ///***********************************************************
-double medidaNueva() {
-  double aux = balanza.read_average(1) - medidaRaw;
+long medidaNueva() {
+  long aux = balanza.read_average(1) - weightTare;
   //Serial.println(aux);
   return aux;
 }
@@ -265,17 +322,17 @@ void agregarMedida() {
 
 }
 ///***********************************************************
-double promedioMedida() {
+long promedioMedida() {
 
   //double nuevaMuestra = medidaNueva;
-  double suma = 0.0;
+  long suma = 0.0;
 
   for (int i = 0; i < muestras; i++) {
     suma = suma + ADC_Entrada[i];
   }
-  suma =  suma / (double) muestras;
+  suma =  suma /  muestras;
   //Serial.println(suma);
-  return (double) suma;
+  return  suma;
 
 }
 ///***********************************************************
@@ -289,9 +346,9 @@ double setWeight()
   return peso;
 }
 ///***********************************************************
-double adctoKg(double promedioADC) {
+double adctoKg(long promedioADC) {
 
-  double pesoADC = -0.0193 * promedioADC + 1.19;
+  double pesoADC = -0.0193 * (double)promedioADC + 1.19;
   pesoADC = pesoADC / 1000;
   return pesoADC;
 
@@ -303,12 +360,12 @@ void initEEPROMData() {
     setZero();
     putEEPROM();
     EEPROM.write(0, 0x02); // cualquier numero distintos a los condicionados
-    Serial.println(medidaRaw);
+    Serial.println(weightTare);
     peso2EEPROM();
   } else {
     Serial.print("Iniciando equipo, medida ADC-EEPROM: ");
-    medidaRaw = getEEPROM();
-    Serial.println(medidaRaw);
+    weightTare = getEEPROM();
+    Serial.println(weightTare);
     EEPROM.write(0, 0x02);
   }
 
@@ -331,6 +388,18 @@ void serialCommandReceive() {
       peso = 0;
       peso2EEPROM();
       pesoEEPROM = 0;
+      resetPID();
+      Setpoint = 0;
+      setpointFlag = true;
+      //send peso
+      char pesoStr[] = "";
+      dtostrf(peso, 4, 3, pesoStr);
+      http_get(pesoStr + headerWeight);
+      http_get(pesoStr + headerWeight);
+      http_get(pesoStr + headerWeight);
+      http_get(pesoStr + headerWeight);
+
+
     }
     if (inByte == 'r') { //Reinicializa la eeprom (como si nunca se hubiera usado
       clearEEPROM();
@@ -366,8 +435,10 @@ double measureWeight() {
   agregarMedida();
   adcActual = promedioMedida();
   //Serial.println(adcActual);
-  //adcActual = adcActual + medidaRaw;
+  //adcActual = adcActual + weightTare;
   peso = adctoKg(adcActual);
+  //control
+  Input = peso;
   //Serial.println(peso, 3);
 
   /*if (peso <= 0.005){
@@ -389,8 +460,8 @@ void comprobacionParametros() {
     Serial.print("pesoEEPROM: ");
     Serial.print(pesoEEPROM, 3);
     Serial.print(" | ");
-    Serial.print("diffWeight: ");
-    Serial.print(diffWeight, 3);
+    Serial.print("Setpoint: ");
+    Serial.print(Setpoint, 3);
     Serial.print(" | ");
     Serial.print("Distancia 1: ");
     Serial.print(dist1);
@@ -404,8 +475,11 @@ void comprobacionParametros() {
     Serial.print("Bandeja: ");
     Serial.print(tray);
     Serial.print(" | ");
-    Serial.print("Transito: ");
-    Serial.print(transit);
+    Serial.print("PID Out: ");
+    Serial.print(Output);
+    Serial.print(" | ");
+    Serial.print("tare: ");
+    Serial.print(weightTare);
     Serial.print(" | ");
 
   }
@@ -423,6 +497,7 @@ void eventDetection() {
   if (tray != 0)
   {
     //weightEvent = true;
+    putEEPROM();
     sendEvent = 0;
 
     Serial.println();
@@ -432,6 +507,26 @@ void eventDetection() {
     if (tray == 1) http_get(headerProductUP);
     if (tray == 2) http_get(headerProductMD);
     if (tray == 3) http_get(headerProductDW);
+
+    unsigned long timeRemaining = interval - timePass; //in miliseconds
+
+
+    if (timeRemaining <= 60000) //one minute
+    {
+      lastInterval = lastInterval + 60000;
+    }
+
+    handEventTime = millis();
+    myPID.SetTunings(0, 0, 0);
+    resetPID();
+    runPID();
+    //myPID.SetSampleTime(60000);
+    Output = 0;
+    setpointFlag = true;
+
+
+
+
   }
 
   if (weightEvent == true)
@@ -439,12 +534,15 @@ void eventDetection() {
     if (sendEvent == 0) (void)setWeight();
     if (sendEvent < 4)
     {
+
       pesoEEPROM = peso;
       peso2EEPROM();
       sendEvent++;
-      http_get(String(peso) + headerWeight);
-      //http_get("GSM:"+ String(latitude) + "," + String(longitude) + ":" + hardwareID);
+      char pesoStr[] = "";
+      dtostrf(peso, 4, 3, pesoStr);
+      http_get(pesoStr + headerWeight);
       peso2EEPROM();
+
     }
     else weightEvent = false;
   }
@@ -592,8 +690,9 @@ void read_hand_bar() {
     tray = 0;
   }
 
-  if (distt < 500) {
+  if (distt < 1000) {
     transit = true;
+    //http_get("transito:TRS:" + String(hardwareID));
   }
   else transit = false;
 
@@ -610,13 +709,12 @@ String enableGPRS()
 
   fonaSerial->begin(9600);
 
-  if (!fona.begin(*fonaSerial))
+  while (!fona.begin(*fonaSerial))
   {
 
     Serial.println(F("Couldn't find FONA"));
 
-    while (1)
-      ;
+    //while (1);
   }
 
   Serial.println(F("FONA is OK"));
@@ -663,7 +761,7 @@ String enableGPRS()
 
   headerWeight = ":PS:" + hardwareID;
 
-  http_get("GSM:"+ String((long)(latitude*1000000)) + "," + String((long)(longitude*1000000)) + ":" + hardwareID); 
+  http_get(String((long)(latitude * 1000000)) + "," + String((long)(longitude * 1000000)) + ":GSM:" + String(hardwareID));
 
   return String(imei);
 }
@@ -706,13 +804,65 @@ uint16_t http_get(String payload_in)
 
 unsigned long timeCalculator()
 {
-  unsigned long timePass = millis() - lastInterval;
+  timePass = millis() - lastInterval;
   if (timePass >= interval)
   {
     weightEvent = true;
     lastInterval = millis();
     fona.getGSMLoc(&latitude, &longitude);
+
+    http_get(String((long)(latitude * 1000000)) + "," + String((long)(longitude * 1000000)) + ":GSM:" + String(hardwareID));
   }
-  //else weightEvent = false;
+
+  pidRunTime = millis() - handEventTime;
+  if (pidRunTime >= 60000 && setpointFlag)
+  {
+    pesoEEPROM = peso;
+    peso2EEPROM();
+    myPID.SetTunings(Kp, Ki, Kd);
+    //myPID.SetSampleTime(100);
+    Setpoint = peso;
+    setpointFlag = false;
+    resetPID();
+    runPID();
+    handEventTime = millis();
+  }
+
   return timePass;
+}
+
+
+//CONTROL***////-
+void initPID() {
+  myPID.SetOutputLimits(-2147483645, 2147483645);
+  myPID.SetSampleTime(100);
+  myPID.SetMode(AUTOMATIC);
+  handEventTime = millis();
+}
+
+void resetPID()
+{
+  myPID.SetOutputLimits(-2147483645, 2147483645);
+  //myPID.SetTunings(0, 0, 0);
+  //runPID();
+  Output = 0;
+}
+
+void runPID()
+{
+  myPID.Compute();
+}
+
+void setweightTarePID()
+{
+  if (setpointFlag)
+  {
+    Output = 0;
+    weightTare = weightTare + (long)Output;
+  }
+  else
+  {
+    weightTare = weightTare + (long)Output;
+  }
+
 }

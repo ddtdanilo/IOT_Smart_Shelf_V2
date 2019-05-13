@@ -151,6 +151,8 @@ long pidRunTime = 0;
 long handEventTime = 0;
 bool setpointFlag = false;
 
+int standCntr = 0;
+
 //SETUP
 void setup() {
 
@@ -161,6 +163,8 @@ void setup() {
   pinMode(resetPin, INPUT_PULLUP);
 
   startTime = millis ();
+  //handEventTime = millis();
+
   lastInterval = startTime;
 
   Serial.begin(115200);
@@ -192,8 +196,11 @@ void loop() {
     peso2EEPROM();
     pesoEEPROM = 0;
     resetPID();
-    setpointFlag = true;
     Setpoint = 0;
+    Output = 0;
+    setpointFlag = true;
+    handEventTime = millis();
+    pidRunTime = millis();
     //send peso
     char pesoStr[] = "";
     dtostrf(peso, 4, 3, pesoStr);
@@ -201,7 +208,6 @@ void loop() {
     http_get(pesoStr + headerWeight);
     http_get(pesoStr + headerWeight);
     http_get(pesoStr + headerWeight);
-
   }
 
   //CONTROL
@@ -390,7 +396,10 @@ void serialCommandReceive() {
       pesoEEPROM = 0;
       resetPID();
       Setpoint = 0;
+      Output = 0;
       setpointFlag = true;
+      handEventTime = millis();
+      pidRunTime = millis();
       //send peso
       char pesoStr[] = "";
       dtostrf(peso, 4, 3, pesoStr);
@@ -690,11 +699,19 @@ void read_hand_bar() {
     tray = 0;
   }
 
-  if (distt < 1000) {
+  if (distt < 800 && !transit && distt > 50) {
     transit = true;
-    //http_get("transito:TRS:" + String(hardwareID));
+    http_get("transito:TRS:" + String(hardwareID));
   }
-  else transit = false;
+
+  if (distt > 800) {
+    transit = false;
+    standCntr = 0;
+  }
+
+  if (distt < 800 && distt > 50) standCntr++;
+  if (standCntr == 20 && transit) http_get("detienen:DTN:" + String(hardwareID));
+
 
   //delay(500);
 }
@@ -838,6 +855,7 @@ void initPID() {
   myPID.SetSampleTime(100);
   myPID.SetMode(AUTOMATIC);
   handEventTime = millis();
+  pidRunTime = millis();
 }
 
 void resetPID()
